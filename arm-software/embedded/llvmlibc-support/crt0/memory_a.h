@@ -58,7 +58,7 @@ void invalidate_cache() {
           (use64BitCCSIDR ? CCSIDR.NumSets64 : CCSIDR.NumSets) + 1;
       unsigned int ways =
           (use64BitCCSIDR ? CCSIDR.Associativity64 : CCSIDR.Associativity) + 1;
-      unsigned way_offset = __builtin_clz(ways); // 32-log2(number of ways)
+      unsigned way_offset = __builtin_clz(ways - 1); // 32-log2(number of ways)
       for (int set = 0; set < sets; ++set) {
         for (int way = 0; way < ways; ++way) {
           unsigned long val =
@@ -71,6 +71,7 @@ void invalidate_cache() {
         }
       }
     }
+    __dsb(0xf); // Ensure completion of previous cache maintenance instruction
   }
 }
 
@@ -91,10 +92,10 @@ void enable_cache() {
 extern "C" [[gnu::weak]] void _platform_setup_memory() {
   invalidate_cache();
 #if __ARM_ARCH_PROFILE == 'A'
-  // Put the page table in the .init section so it doesn't later get
+  // Put the page table in a no-init section so it doesn't later get
   // zero-initialized.
   static_assert(sizeof(unsigned long) == PAGE_TABLE_ENTRY_SIZE);
-  [[gnu::section(".init"), gnu::aligned(PAGE_TABLE_ALIGNMENT)]]
+  [[gnu::section(".noinit.page_table"), gnu::aligned(PAGE_TABLE_ALIGNMENT)]]
   static volatile unsigned long pagetable[PAGE_TABLE_ENTRY_COUNT];
   setup_mmu(pagetable, get_stackheap_start(), get_stackheap_end());
 #endif

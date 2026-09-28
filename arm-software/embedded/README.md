@@ -79,7 +79,7 @@ models, which have their own licenses. These are not used by default, see
 
 Arm Toolchain for Embedded is built and tested on:
 * Linux Ubuntu 22.04 LTS on x86_64 and AArch64.
-* macOS on x86_64 and Apple Silicon.
+* macOS on Apple Silicon.
 * Windows Server 2019 with Visual Studio on x86_64.
 
 [Binary packages](https://github.com/arm/arm-toolchain/releases)
@@ -103,6 +103,10 @@ Install appropriate latest supported Microsoft Visual C++ Redistributable packag
 > [!CAUTION]
 > If you are using the toolchain in a shared environment with untrusted input,
 > make sure it is sufficiently sandboxed.
+
+> [!NOTE]
+> See [Using LLVM libc](docs/llvmlibc.md#using-llvm-libc) for details about
+> using LLVM Project standard C library provided with ATfE.
 
 To use the toolchain, on the command line you need to provide the following options:
 * The target triple.

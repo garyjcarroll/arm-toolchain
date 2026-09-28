@@ -18,8 +18,8 @@
 namespace bootcode {
 namespace sysreg {
 
-// System register names and the address each is located at
-#define REGNAMES                                                               \
+// System registers that are memory-mapped.
+#define MEM_REGNAMES                                                           \
   REGNAME(ICTR, 0xE000E004)                                                    \
   REGNAME(SYST_CSR, 0xE000E010)                                                \
   REGNAME(SYST_RVR, 0xE000E014)                                                \
@@ -29,6 +29,9 @@ namespace sysreg {
   REGNAME(ICSR, 0xE000ED04)                                                    \
   REGNAME(VTOR, 0xE000ED08)                                                    \
   REGNAME(CCR, 0xE000ED14)                                                     \
+  REGNAME(CLIDR, 0xE000ED78)                                                   \
+  REGNAME(CCSIDR, 0xE000ED80)                                                  \
+  REGNAME(CSSELR, 0xE000ED84)                                                  \
   REGNAME(SHCSR, 0xE000ED24)                                                   \
   REGNAME(CFSR, 0xE000ED28)                                                    \
   REGNAME(HFSR, 0xE000ED2C)                                                    \
@@ -36,14 +39,29 @@ namespace sysreg {
   REGNAME(BFAR, 0xE000ED38)                                                    \
   REGNAME(CPACR, 0xE000ED88)                                                   \
   REGNAME(NSACR, 0xE000ED8C)                                                   \
+  REGNAME(MPU_TYPE, 0xE000ED90)                                                \
   REGNAME(MPU_CTRL, 0xE000ED94)                                                \
+  REGNAME(ICIALLU, 0xE000EF50)                                                 \
+  REGNAME(DCISW, 0xE000EF60)                                                   \
   REGNAME(SFSR, 0xE000EDE4)                                                    \
   REGNAME(SFAR, 0xE000EDE8)                                                    \
   REGNAME(FPCCR, 0xE000EF34)
 
+// System registers that are accessed using mrs/msr.
+#define MRS_REGNAMES                                                           \
+  REGNAME(CONTROL, 0)                                                          \
+  REGNAME(PAC_KEY_P_0, 0)                                                      \
+  REGNAME(PAC_KEY_P_1, 0)                                                      \
+  REGNAME(PAC_KEY_P_2, 0)                                                      \
+  REGNAME(PAC_KEY_P_3, 0)                                                      \
+  REGNAME(PAC_KEY_U_0, 0)                                                      \
+  REGNAME(PAC_KEY_U_1, 0)                                                      \
+  REGNAME(PAC_KEY_U_2, 0)                                                      \
+  REGNAME(PAC_KEY_U_3, 0)
+
 enum class SysRegName {
 #define REGNAME(X, Y) X,
-  REGNAMES
+  MEM_REGNAMES MRS_REGNAMES
 #undef REGNAME
 };
 
@@ -55,7 +73,8 @@ template <SysRegName Name> class SysRegTraits {};
   public:                                                                      \
     static constexpr unsigned long Addr = Y;                                   \
   };
-REGNAMES
+MEM_REGNAMES
+MRS_REGNAMES
 #undef REGNAME
 
 template <SysRegName Name> class SysReg : public SysRegBase<SysReg<Name>> {
@@ -76,6 +95,20 @@ public:
     return *this;
   }
 };
+
+#define REGNAME(X, Y)                                                          \
+  template <>                                                                  \
+  [[clang::always_inline]] inline unsigned long                                \
+  SysReg<SysRegName::X>::read() {                                              \
+    return __arm_rsr(#X);                                                      \
+  }                                                                            \
+  template <>                                                                  \
+  [[clang::always_inline]] inline void SysReg<SysRegName::X>::write(           \
+      unsigned long val) {                                                     \
+    __arm_wsr(#X, val);                                                        \
+  }
+MRS_REGNAMES
+#undef REGNAME
 
 // Register sets, the base address, and the maximum member index
 #define REGSETNAMES REGNAME(NVIC_ICERn, 0xE000E180, 15)
@@ -126,6 +159,40 @@ public:
   Bit<20> TRD;
 };
 
+class CLIDR_Class : public SysReg<SysRegName::CLIDR> {
+public:
+  static constexpr unsigned long CacheTypeNone = 0;
+  static constexpr unsigned long CacheTypeInstruction = 1;
+  static constexpr unsigned long CacheTypeData = 2;
+  static constexpr unsigned long CacheTypeSeparate = 3;
+  static constexpr unsigned long CacheTypeUnified = 4;
+
+  Field<0, 2> L1CacheType;
+
+  [[clang::always_inline]] bool HasICache() {
+    unsigned long ctype = L1CacheType;
+    return (ctype == CacheTypeInstruction) || (ctype == CacheTypeSeparate) ||
+           (ctype == CacheTypeUnified);
+  }
+
+  [[clang::always_inline]] bool HasDCache() {
+    unsigned long ctype = L1CacheType;
+    return (ctype == CacheTypeData) || (ctype == CacheTypeSeparate) ||
+           (ctype == CacheTypeUnified);
+  }
+
+  [[clang::always_inline]] bool HasAnyCache() {
+    return L1CacheType != CacheTypeNone;
+  }
+};
+
+class CCSIDR_Class : public SysReg<SysRegName::CCSIDR> {
+public:
+  Field<0, 2> LineSize;
+  Field<3, 12> Associativity;
+  Field<13, 27> NumSets;
+};
+
 class CFSR_Class : public SysReg<SysRegName::CFSR> {
 public:
   Field<0, 7> MMFSR;
@@ -162,6 +229,13 @@ public:
   Bit<0> ENABLE;
   Bit<1> HFNMIENA;
   Bit<2> PRIVDEFENA;
+};
+
+class MPU_TYPE_Class : public SysReg<SysRegName::MPU_TYPE> {
+public:
+  Field<8, 15> DREGION;
+
+  [[clang::always_inline]] bool HasMPU() { return DREGION != 0; }
 };
 
 class CPUID_Class : public SysReg<SysRegName::CPUID> {
@@ -242,6 +316,18 @@ public:
   Bit<31> ASPEN;
 };
 
+class CONTROL_Class : public SysReg<SysRegName::CONTROL> {
+public:
+  Bit<0> nPRIV;
+  Bit<1> SPSEL;
+  Bit<2> FPCA;
+  Bit<3> SFPA;
+  Bit<4> BTI_EN;
+  Bit<5> UBTI_EN;
+  Bit<6> PAC_EN;
+  Bit<7> UPAC_EN;
+};
+
 extern ICTR_Class ICTR;
 extern SYST_CSR_Class SYST_CSR;
 extern SysReg<SysRegName::SYST_RVR> SYST_RVR;
@@ -251,6 +337,11 @@ extern CPUID_Class CPUID;
 extern ICSR_Class ICSR;
 extern SysReg<SysRegName::VTOR> VTOR;
 extern CCR_Class CCR;
+extern CLIDR_Class CLIDR;
+extern CCSIDR_Class CCSIDR;
+extern SysReg<SysRegName::CSSELR> CSSELR;
+extern SysReg<SysRegName::ICIALLU> ICIALLU;
+extern SysReg<SysRegName::DCISW> DCISW;
 extern SHCSR_Class SHCSR;
 extern CFSR_Class CFSR;
 extern SysReg<SysRegName::HFSR> HFSR;
@@ -258,10 +349,20 @@ extern SysReg<SysRegName::MMFAR> MMFAR;
 extern SysReg<SysRegName::BFAR> BFAR;
 extern CPACR_Class CPACR;
 extern NSACR_Class NSACR;
+extern MPU_TYPE_Class MPU_TYPE;
 extern MPU_CTRL_Class MPU_CTRL;
 extern SysReg<SysRegName::SFSR> SFSR;
 extern SysReg<SysRegName::SFAR> SFAR;
 extern FPCCR_Class FPCCR;
+extern CONTROL_Class CONTROL;
+extern SysReg<SysRegName::PAC_KEY_P_0> PAC_KEY_P_0;
+extern SysReg<SysRegName::PAC_KEY_P_1> PAC_KEY_P_1;
+extern SysReg<SysRegName::PAC_KEY_P_2> PAC_KEY_P_2;
+extern SysReg<SysRegName::PAC_KEY_P_3> PAC_KEY_P_3;
+extern SysReg<SysRegName::PAC_KEY_U_0> PAC_KEY_U_0;
+extern SysReg<SysRegName::PAC_KEY_U_1> PAC_KEY_U_1;
+extern SysReg<SysRegName::PAC_KEY_U_2> PAC_KEY_U_2;
+extern SysReg<SysRegName::PAC_KEY_U_3> PAC_KEY_U_3;
 extern SysRegSet<SysRegSetName::NVIC_ICERn> NVIC_ICER;
 
 } // namespace sysreg

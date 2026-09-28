@@ -54,12 +54,20 @@
 #
 #
 # Cross-building from Linux to Windows MinGW is supported.
-# Note that a build created this way includes GCC & MinGW DLLs which
+# Note that a build created this way includes MinGW runtime DLLs which
 # come under a different license. See building-from-source.md for
 # details.
 #
-# To enable cross-building run:
+# To enable cross-building with GCC-based Mingw-w64 run:
 #   cmake . -DLLVM_TOOLCHAIN_CROSS_BUILD_MINGW=ON -DCMAKE_INSTALL_PREFIX=$(pwd)/install-mingw
+#
+# To cross-build with LLVM MinGW toolchain, set:
+#   -DLLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW=ON
+# and specify the target triple
+# (x86_64-w64-mingw32 is the default for both MinGW toolchains):
+#   -DLLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE=x86_64-w64-mingw32
+# or:
+#   -DLLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE=aarch64-w64-mingw32
 #
 # If cross-building, there will be two toolchains built:
 # 1. The "build" toolchain. This is used to build the libraries.
@@ -102,8 +110,23 @@ cmake_minimum_required(VERSION 3.20)
 
 option(
     LLVM_TOOLCHAIN_CROSS_BUILD_MINGW
-    "Cross-build for Windows. Using this option implies that you accept the GCC & MinGW licenses."
+    "Cross-build for Windows. Using this option implies that you accept the MinGW runtime licenses."
 )
+option(
+    LLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW
+    "Use LLVM MinGW instead of the GCC-based toolchain when cross-building for Windows."
+)
+if(LLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW AND NOT LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
+    set(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW ON CACHE BOOL "" FORCE)
+endif()
+
+set(LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE
+    "x86_64-w64-mingw32" CACHE STRING
+    "MinGW target triple to use when cross-building Windows packages."
+)
+set_property(CACHE LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE
+    PROPERTY STRINGS x86_64-w64-mingw32 aarch64-w64-mingw32)
+
 option(
     PREBUILT_TARGET_LIBRARIES
     "Target libraries are prebuilt so no need to build them"
@@ -203,6 +226,16 @@ if(LLVM_TOOLCHAIN_C_LIBRARY)
     endif()
 endif()
 
+if(ENABLE_PARALLEL_LIB_CONFIG
+    AND LLVM_TOOLCHAIN_ENABLE_LLVMLIBC
+    AND CMAKE_VERSION VERSION_LESS 4.3.0)
+    message(FATAL_ERROR
+        "Parallel configuration of LLVM libc requires CMake 4.3.0 or later. "
+        "Older CMake versions can run out of memory during configuration. "
+        "Upgrade CMake or disable parallel configuration with "
+        "-DENABLE_PARALLEL_LIB_CONFIG=OFF.")
+endif()
+
 option(
     SHORT_BUILD_PATHS
     "Shorten the lengths of internal build paths, which may help with OS path
@@ -281,6 +314,7 @@ set(BUG_REPORT_URL "https://github.com/arm/arm-toolchain/issues" CACHE STRING ""
 set(LLVM_DISTRIBUTION_COMPONENTS
     clang-resource-headers
     clang
+    clangd
     clang-check
     clang-format
     clang-scan-deps
@@ -316,7 +350,7 @@ set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
     CACHE STRING "Components defined by this CMakeLists that should be
 installed by the install-llvm-toolchain target"
 )
-set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
+set(LLVM_ENABLE_PROJECTS clang;clang-tools-extra;lld CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD AArch64;ARM CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE aarch64-unknown-linux-gnu CACHE STRING "")
 set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
@@ -332,7 +366,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE BOOL "" FORCE)
 endif()
 
-set(CMAKE_OSX_ARCHITECTURES arm64;x86_64 CACHE STRING "")
+set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -458,18 +492,6 @@ foreach(libc IN LISTS LLVM_TOOLCHAIN_ENABLED_LIBCS)
             COMPONENT ${libc_component}
         )
 
-        set(_llvmlibc_samples_dir ${CMAKE_CURRENT_SOURCE_DIR}/llvmlibc-samples)
-        if(EXISTS ${_llvmlibc_samples_dir})
-            install(
-              DIRECTORY
-              ${_llvmlibc_samples_dir}/
-              DESTINATION samples
-              COMPONENT ${libc_component}
-            )
-        else()
-            message(WARNING "llvmlibc samples directory not found at ${_llvmlibc_samples_dir}; skipping sample installation.")
-        endif()
-
     endif()
 endforeach()
 list(APPEND LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS ${LLVM_TOOLCHAIN_LIBC_CONFIG_COMPONENTS})
@@ -480,6 +502,12 @@ set(LLVM_EXTERNAL_ELF2BIN_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../shared/elf2b
 
 set(clang_lit_xfails_path "${CMAKE_CURRENT_BINARY_DIR}/clang_lit_xfails.txt")
 set(CLANG_TEST_EXTRA_ARGS "@${clang_lit_xfails_path}")
+
+# Generate a toolchain ID.
+# Product code 'E' for Embedded.
+# This must be done before the llvm directory is included.
+set(LLVM_TOOLCHAIN_PROJECT_CODE "E")
+include(${CMAKE_CURRENT_SOURCE_DIR}/../shared/cmake/generate_toolchain_id.cmake)
 
 add_subdirectory(
     ${llvmproject_src_dir}/llvm llvm
@@ -500,12 +528,6 @@ add_custom_target(
 )
 add_dependencies(check-clang clang-xfail-lit-args)
 add_dependencies(check-all clang-xfail-lit-args)
-
-# Generate a toolchain ID.
-# Product code 'E' for Embedded.
-set(LLVM_TOOLCHAIN_PROJECT_CODE "E")
-set(LLVM_TOOLCHAIN_VERSION_SUFFIX "pre")
-include(${CMAKE_CURRENT_SOURCE_DIR}/../shared/cmake/generate_toolchain_id.cmake)
 
 get_directory_property(LLVM_VERSION_MAJOR DIRECTORY ${llvmproject_src_dir}/llvm DEFINITION LLVM_VERSION_MAJOR)
 get_directory_property(LLVM_VERSION_MINOR DIRECTORY ${llvmproject_src_dir}/llvm DEFINITION LLVM_VERSION_MINOR)
@@ -570,8 +592,21 @@ endif()
 set(CPACK_THREADS 0 CACHE STRING "")
 
 # set processor_name
-string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
+    if(LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE MATCHES "^x86_64-")
+        set(processor_name "x86_64")
+        set(LLVM_TOOLCHAIN_MINGW_CMAKE_SYSTEM_PROCESSOR "x86_64")
+    elseif(LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE MATCHES "^aarch64-")
+        set(processor_name "AArch64")
+        set(LLVM_TOOLCHAIN_MINGW_CMAKE_SYSTEM_PROCESSOR "aarch64")
+    else()
+        message(FATAL_ERROR
+            "Unsupported LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE "
+            "'${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}'. Supported values are "
+            "x86_64-w64-mingw32 and aarch64-w64-mingw32.")
+    endif()
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
     # If we're compiling on OSX we need to understand what targets we're
     #  building for.
     string(FIND "${CMAKE_OSX_ARCHITECTURES}" "x86_64" x86_result)
@@ -588,6 +623,7 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     # otherwise processor_name is already the system processor name
     endif()
 else()
+    string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
     string(REGEX MATCH "amd64|x64|x86" x86_match ${processor_name})
     if(x86_match)
         set(processor_name "x86_64")
@@ -649,7 +685,7 @@ add_custom_target(
     -Dpicolibc_URL=${picolibc_URL}
     -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
     -Dnewlib_URL=${newlib_URL}
-    -DLLVM_TOOLCHAIN_ENABLED_LIBCS=${LLVM_TOOLCHAIN_ENABLED_LIBCS}
+    "-DLLVM_TOOLCHAIN_ENABLED_LIBCS=\"${LLVM_TOOLCHAIN_ENABLED_LIBCS}\""
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
 )
@@ -944,8 +980,13 @@ unset(_has_external_source_libc)
 
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
     set(_mingw_license_dir third-party-licenses)
-    string(APPEND LLVM_TOOLCHAIN_LICENSE_SUMMARY_LINES
-        " - MinGW runtime DLLs: ${_mingw_license_dir}/COPYING.MinGW-w64-runtime.txt, ${_mingw_license_dir}/COPYING3.GCC, ${_mingw_license_dir}/COPYING.RUNTIME\n")
+    if(LLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW)
+        string(APPEND LLVM_TOOLCHAIN_LICENSE_SUMMARY_LINES
+            " - LLVM MinGW runtime DLLs: ${_mingw_license_dir}/llvm-mingw/LICENSE.TXT, ${_mingw_license_dir}/llvm-mingw/mingw32/\n")
+    else()
+        string(APPEND LLVM_TOOLCHAIN_LICENSE_SUMMARY_LINES
+            " - MinGW runtime DLLs: ${_mingw_license_dir}/COPYING.MinGW-w64-runtime.txt, ${_mingw_license_dir}/COPYING3.GCC, ${_mingw_license_dir}/COPYING.RUNTIME\n")
+    endif()
     unset(_mingw_license_dir)
 endif()
 configure_file(cmake/THIRD-PARTY-LICENSES.txt.in THIRD-PARTY-LICENSES.txt @ONLY)
@@ -1026,15 +1067,27 @@ endforeach()
 
 # Install samples
 if(WIN32 OR LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
-    set(sample_files_regex "Makefile|.*\\.(c|conf|cpp|ld|md|in|bat)")
+    set(sample_files_regex "Makefile|.*\\.(c|conf|cpp|h|ld|md|in|bat)")
 else()
-    set(sample_files_regex "Makefile|.*\\.(c|conf|cpp|ld|md|in)")
+    set(sample_files_regex "Makefile|.*\\.(c|conf|cpp|h|ld|md|in)")
 endif()
 install(
     DIRECTORY samples
     DESTINATION .
     COMPONENT llvm-toolchain-samples
     FILES_MATCHING REGEX "${sample_files_regex}"
+)
+
+# The FVP sample uses these files directly from their normal locations in the
+# source tree. Install matching copies alongside the sample for packaged use.
+install(
+    FILES
+        arm-runtimes/test-support/lit-exec-fvp.py
+        arm-runtimes/test-support/run_fvp.py
+        fvp/config/cortex-m85.cfg
+        fvp/config/v8a-aarch64.cfg
+    DESTINATION samples/src/baremetal-semihosting-fvp
+    COMPONENT llvm-toolchain-samples
 )
 
 
@@ -1090,7 +1143,18 @@ else()
     set(cpack_generator TXZ)
     set(package_filename_extension ".tar.xz")
 endif()
-set(package_filepath ${CMAKE_BINARY_DIR}/${PACKAGE_FILE_NAME}${package_filename_extension})
+# CPACK_PACKAGE_DIRECTORY can optionally set the location of the package.
+# If unset, the location will default to CMAKE_BINARY_DIR.
+if (CPACK_PACKAGE_DIRECTORY)
+    # CPACK_PACKAGE_DIRECTORY may or may not be relative, so
+    # resolve it to an absolute path first.
+    cmake_path(ABSOLUTE_PATH CPACK_PACKAGE_DIRECTORY
+        BASE_DIRECTORY ${CMAKE_BINARY_DIR}
+        OUTPUT_VARIABLE absolute_package_dir)
+    set(package_filepath ${absolute_package_dir}/${PACKAGE_FILE_NAME}${package_filename_extension})
+else()
+    set(package_filepath ${CMAKE_BINARY_DIR}/${PACKAGE_FILE_NAME}${package_filename_extension})
+endif()
 set(unpack_directory ${CMAKE_CURRENT_BINARY_DIR}/unpack/${PACKAGE_FILE_NAME})
 add_custom_command(
     OUTPUT ${package_filepath}
@@ -1141,9 +1205,71 @@ add_dependencies(check-llvm-toolchain check-llvm-toolchain-lit)
 add_subdirectory(packagetest)
 
 if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
-    find_program(MINGW_C_EXECUTABLE x86_64-w64-mingw32-gcc-posix REQUIRED)
-    find_program(MINGW_CXX_EXECUTABLE x86_64-w64-mingw32-g++-posix REQUIRED)
-    cmake_path(SET MINGW_SYSROOT NORMALIZE "${MINGW_C_EXECUTABLE}/../../x86_64-w64-mingw32")
+    if(LLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW)
+        find_program(LLVM_MINGW_C_EXECUTABLE
+            ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-clang
+            REQUIRED)
+        find_program(LLVM_MINGW_CXX_EXECUTABLE
+            ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-clang++
+            REQUIRED)
+        find_program(LLVM_MINGW_RC_EXECUTABLE
+            ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-windres
+            REQUIRED)
+        find_program(LLVM_MINGW_AR_EXECUTABLE
+            ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-llvm-ar
+            REQUIRED)
+        find_program(LLVM_MINGW_RANLIB_EXECUTABLE
+            ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-llvm-ranlib
+            REQUIRED)
+
+        cmake_path(GET LLVM_MINGW_C_EXECUTABLE PARENT_PATH MINGW_TOOLCHAIN_BIN_DIR)
+        cmake_path(GET MINGW_TOOLCHAIN_BIN_DIR PARENT_PATH MINGW_TOOLCHAIN_ROOT)
+        set(MINGW_SYSROOT "${MINGW_TOOLCHAIN_ROOT}/${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}")
+        if(NOT IS_DIRECTORY "${MINGW_SYSROOT}")
+            message(FATAL_ERROR
+                "LLVM MinGW sysroot '${MINGW_SYSROOT}' does not exist. "
+                "Put a complete LLVM MinGW toolchain on PATH.")
+        endif()
+
+        file(GLOB MINGW_RUNTIME_DLLS "${MINGW_SYSROOT}/bin/*.dll")
+        set(MINGW_RUNTIME_DLL_LOOKUP_EXECUTABLE ${LLVM_MINGW_C_EXECUTABLE})
+
+        set(mingw_cmake_tool_args
+            -DCMAKE_C_COMPILER=${LLVM_MINGW_C_EXECUTABLE}
+            -DCMAKE_CXX_COMPILER=${LLVM_MINGW_CXX_EXECUTABLE}
+            -DCMAKE_RC_COMPILER=${LLVM_MINGW_RC_EXECUTABLE}
+            -DCMAKE_AR=${LLVM_MINGW_AR_EXECUTABLE}
+            -DCMAKE_RANLIB=${LLVM_MINGW_RANLIB_EXECUTABLE}
+            -DCMAKE_FIND_ROOT_PATH=${MINGW_SYSROOT}
+            -DCMAKE_SYSTEM_PROCESSOR=${LLVM_TOOLCHAIN_MINGW_CMAKE_SYSTEM_PROCESSOR}
+        )
+    else()
+        find_program(GCC_MINGW_C_EXECUTABLE
+            NAMES
+                ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-gcc-posix
+                ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-gcc
+            REQUIRED)
+        find_program(GCC_MINGW_CXX_EXECUTABLE
+            NAMES
+                ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-g++-posix
+                ${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}-g++
+            REQUIRED)
+
+        cmake_path(SET MINGW_SYSROOT NORMALIZE "${GCC_MINGW_C_EXECUTABLE}/../../${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}")
+        set(MINGW_RUNTIME_DLLS
+            libwinpthread-1.dll # POSIX thread API implementation
+            libgcc_s_seh-1.dll  # GCC runtime
+            libstdc++-6.dll     # C++ Standard Library
+        )
+        set(MINGW_RUNTIME_DLL_LOOKUP_EXECUTABLE ${GCC_MINGW_C_EXECUTABLE})
+
+        set(mingw_cmake_tool_args
+            -DCMAKE_C_COMPILER=${GCC_MINGW_C_EXECUTABLE}
+            -DCMAKE_CXX_COMPILER=${GCC_MINGW_CXX_EXECUTABLE}
+            -DCMAKE_FIND_ROOT_PATH=${MINGW_SYSROOT}
+            -DCMAKE_SYSTEM_PROCESSOR=${LLVM_TOOLCHAIN_MINGW_CMAKE_SYSTEM_PROCESSOR}
+        )
+    endif()
 
     string(REPLACE ";" "," LLVM_ENABLE_PROJECTS_comma "${LLVM_ENABLE_PROJECTS}")
     string(REPLACE ";" "," LLVM_DISTRIBUTION_COMPONENTS_comma "${LLVM_DISTRIBUTION_COMPONENTS}")
@@ -1158,9 +1284,9 @@ if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
         -DBUG_REPORT_URL=${BUG_REPORT_URL}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DCMAKE_CROSSCOMPILING=ON
-        -DCMAKE_C_COMPILER=${MINGW_C_EXECUTABLE}
-        -DCMAKE_CXX_COMPILER=${MINGW_CXX_EXECUTABLE}
-        -DCMAKE_FIND_ROOT_PATH=${MINGW_SYSROOT}
+        -DCLANG_DEFAULT_LINKER=lld
+        ${mingw_cmake_tool_args}
+        -DLLVM_HOST_TRIPLE=${LLVM_TOOLCHAIN_MINGW_TARGET_TRIPLE}
         -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
@@ -1205,24 +1331,37 @@ if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
     )
 
     # Copy MinGW licenses
-    install(
-        DIRECTORY mingw-licenses/
-        DESTINATION third-party-licenses
-        COMPONENT llvm-toolchain-third-party-licenses
-    )
+    if(LLVM_TOOLCHAIN_CROSS_BUILD_LLVM_MINGW)
+        install(
+            FILES "${MINGW_TOOLCHAIN_ROOT}/LICENSE.TXT"
+            DESTINATION third-party-licenses/llvm-mingw
+            COMPONENT llvm-toolchain-third-party-licenses
+        )
+        install(
+            DIRECTORY "${MINGW_SYSROOT}/share/mingw32/"
+            DESTINATION third-party-licenses/llvm-mingw/mingw32
+            COMPONENT llvm-toolchain-third-party-licenses
+            FILES_MATCHING
+                PATTERN "COPYING*"
+        )
+    else()
+        install(
+            DIRECTORY mingw-licenses/
+            DESTINATION third-party-licenses
+            COMPONENT llvm-toolchain-third-party-licenses
+        )
+    endif()
 
     # Copy MinGW runtime DLLs
-    foreach(mingw_runtime_dll
-        libwinpthread-1.dll # POSIX thread API implementation
-        libgcc_s_seh-1.dll  # GCC runtime
-        libstdc++-6.dll     # C++ Standard Library
-    )
-        execute_process(
-            COMMAND ${MINGW_C_EXECUTABLE} -print-file-name=${mingw_runtime_dll}
-            OUTPUT_VARIABLE mingw_runtime_dll
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            COMMAND_ERROR_IS_FATAL ANY
-        )
+    foreach(mingw_runtime_dll IN LISTS MINGW_RUNTIME_DLLS)
+        if(NOT IS_ABSOLUTE "${mingw_runtime_dll}")
+            execute_process(
+                COMMAND ${MINGW_RUNTIME_DLL_LOOKUP_EXECUTABLE} -print-file-name=${mingw_runtime_dll}
+                OUTPUT_VARIABLE mingw_runtime_dll
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                COMMAND_ERROR_IS_FATAL ANY
+            )
+        endif()
         install(
             FILES ${mingw_runtime_dll}
             TYPE BIN

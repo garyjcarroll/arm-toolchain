@@ -26,6 +26,7 @@ The following packages need to be installed (using `apt`):
 - `python3-pip`
 - `python3-pygments`
 - `python3-yaml`
+- `furo`
 - `zlib1g-dev`
 
 ### `.rpm`-based systems (RHEL, CentOS, Alma, Amazon)
@@ -77,6 +78,7 @@ The following packages need to be installed (using `apt`):
 - `python3-pygments`
 - `python3-pyyaml`
 - `python3-myst-parser` (since RHEL10)
+- `python3-furo`
 
 ## Optional: obtaining libamath.a and libamath.so
 
@@ -159,12 +161,16 @@ The `build.sh` script reads the following environment variables:
   (default: `arm-software/linux/logs`)
 - `OUTPUT_DIR` - The directory where all build output will be stored
   (default: `arm-software/linux/output`)
+- `BOOTSTRAP_COMPILER_DIR` - The bootstrap compiler directory (must be writable!)
+  (default: `arm-software/linux/build/bootstrap_compiler`)
 - `RELEASE_FLAGS` - Enable release flags in the build `true`/`false`
   (default: false), set this to `true` when doing a proper release (not nightly) build
 - `PARALLEL_JOBS` - The number of parallel jobs to run during the build
   (default: number of the available CPU cores)
 - `ATFL_ASSERTIONS` - Enable assertions in the build ON/OFF
   (default: ON), set this to `OFF` when doing a proper release (not nightly) build
+- `ATFL_BOLTED` - Specify whether the clang and flang compilers should be bolted
+  (default: OFF), set this to `ON` when doing a proper release (not nightly) build
 - `ATFL_TARGET_TRIPLE` - Specify the default target triple
   (default: aarch64-unknown-linux-gnu), Set it to aarch64-amazon-linux when building for Amazon Linux
 - `OS_NAME` - Specify the OS name

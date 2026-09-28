@@ -15,6 +15,8 @@
 #ifndef LLVMET_LLVMLIBC_SUPPORT_PLATFORM_H
 #define LLVMET_LLVMLIBC_SUPPORT_PLATFORM_H
 
+#include "platform_setup_pcs.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,7 +26,7 @@ extern "C" {
 // needed, this is where to do it.
 
 // Set up the exceptions table and enable relevant interrupts.
-void _platform_setup_exceptions(void);
+PLATFORM_SETUP_PCS void _platform_setup_exceptions(void);
 
 // Set up the Memory Management Unit and caches.
 void _platform_setup_memory(void);
@@ -34,6 +36,9 @@ void _platform_setup_arch_extensions(void);
 
 // Relocate read-write data into its runtime memory and clear the BSS region.
 void _platform_init_data_segments(void);
+
+// Initialize thread-local storage (TLS) for the initial execution context.
+void _platform_init_tls(void);
 
 // Any other initialization right before the main function is called,
 // for example, in semihosting, the standard I/O handles must be opened

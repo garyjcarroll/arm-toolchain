@@ -10,15 +10,17 @@
 set -e
 
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    clang=1:14.0-55~exp2 \
+    clang \
     ccache \
-    cmake=3.22.1-1ubuntu1.22.04.2 \
-    ninja-build=1.10.1-1 \
+    ninja-build \
     python3-pip \
     python3-setuptools \
-    qemu-system-arm=1:6.2+dfsg-2ubuntu6.27 \
-    ipxe-qemu=1.21.1+git-20220113.fbbdc3926-0ubuntu1
+    qemu-system-arm \
+    ipxe-qemu
 
 # Upgrade pip and install dependencies
 python3 -m pip install --upgrade pip
-python3 -m pip install meson==1.2.3 ruff==0.8.6
+python3 -m pip install --user cmake==4.3.0 meson==1.2.3 psutil==7.2.2 ruff==0.8.6
+
+export PATH="${HOME}/.local/bin:${PATH}"
+cmake --version

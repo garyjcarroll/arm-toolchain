@@ -11,7 +11,7 @@ from lit.llvm.subst import FindTool, ToolSubst
 # Configuration file for the 'lit' test runner.
 
 config.name = "package"
-config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
+config.test_format = lit.formats.ShTest()
 config.suffixes = [".c", ".cpp", ".test"]
 config.excludes = ["CMakeLists.txt", "README.md"]
 config.test_source_root = os.path.dirname(__file__)
@@ -47,5 +47,32 @@ llvm_config.config.substitutions.append(("%samples_dir", '"%s"' % config.samples
 llvm_config.config.substitutions.append(
     ("%unpack_directory", '"%s"' % config.unpack_directory)
 )
+if config.packagetest_libc:
+    llvm_config.config.substitutions.append(
+        ("%sample_libc", "LIBC=%s" % config.packagetest_libc)
+    )
+else:
+    llvm_config.config.substitutions.append(("%sample_libc", ""))
+
+libc_config = ""
+if config.packagetest_libc:
+    libc_config_file = os.path.join(
+        config.unpack_directory, "bin", "%s.cfg" % config.packagetest_libc
+    )
+    if os.path.isfile(libc_config_file):
+        libc_config = "--config=%s.cfg" % config.packagetest_libc
+llvm_config.config.substitutions.append(("%libc_config", libc_config))
+
+libc_linker_scripts = {
+    "picolibc": "picolibcpp.ld",
+    "llvmlibc": "llvmlibc.ld",
+}
+if config.packagetest_libc:
+    libc_linker_script = libc_linker_scripts[config.packagetest_libc]
+else:
+    # Preserve the original behavior for package tests configured without an
+    # explicitly selected C library.
+    libc_linker_script = libc_linker_scripts["picolibc"]
+llvm_config.config.substitutions.append(("%libc_linker_script", libc_linker_script))
 
 config.environment["CLANG_NO_DEFAULT_CONFIG"] = "1"

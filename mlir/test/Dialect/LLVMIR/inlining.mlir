@@ -8,8 +8,8 @@
 func.func @inner_func_inlinable(%ptr : !llvm.ptr) -> i32 {
   %0 = llvm.mlir.constant(42 : i32) : i32
   %stack = llvm.intr.stacksave : !llvm.ptr
-  llvm.store %0, %ptr { alignment = 8 } : i32, !llvm.ptr
-  %1 = llvm.load %ptr { alignment = 8 } : !llvm.ptr -> i32
+  llvm.store %0, %ptr <alignment = 8> : i32, !llvm.ptr
+  %1 = llvm.load %ptr <alignment = 8> : !llvm.ptr -> i32
   llvm.intr.dbg.value #variable = %0 : i32
   llvm.intr.dbg.declare #variableAddr = %ptr : !llvm.ptr
   llvm.intr.dbg.label #label
@@ -570,6 +570,52 @@ llvm.func @test_byval_global() {
 
 // -----
 
+// Check that alignment information is preserved in the memcpy when inlining
+// byval arguments.
+
+llvm.func @byval_aligned_arg(%ptr : !llvm.ptr { llvm.byval = i32, llvm.align = 16 }) {
+  llvm.return
+}
+
+// CHECK-LABEL: llvm.func @test_byval_memcpy_alignment
+// CHECK-SAME: %[[PTR:[a-zA-Z0-9_]+]]: !llvm.ptr
+llvm.func @test_byval_memcpy_alignment(%ptr : !llvm.ptr) {
+  // Verify the memcpy carries the alignment info from the byval attribute.
+  // CHECK: %[[ALLOCA:.+]] = llvm.alloca
+  // CHECK: "llvm.intr.memcpy"(%[[ALLOCA]], %[[PTR]]
+  // CHECK-SAME: {llvm.align = 16 : i64}
+  llvm.call @byval_aligned_arg(%ptr) : (!llvm.ptr) -> ()
+  llvm.return
+}
+
+// -----
+
+// Check that inlining does not hoist byval allocas out of automatic allocation
+// scopes, such as parallel forall regions. Each parallel iteration must have
+// its own private copy of the byval argument.
+
+llvm.func @byval_in_parallel(%ptr : !llvm.ptr { llvm.byval = f32 }) {
+  llvm.return
+}
+
+// CHECK-LABEL: llvm.func @test_byval_in_parallel_region
+// CHECK-SAME: %[[PTR:[a-zA-Z0-9_]+]]: !llvm.ptr
+llvm.func @test_byval_in_parallel_region(%ptr : !llvm.ptr) {
+  %c0 = arith.constant 0 : index
+  // Verify the alloca is not hoisted out of the allocation scope.
+  // CHECK-NOT: llvm.alloca
+  // CHECK: test.alloca_scope_region
+  test.alloca_scope_region {
+    // CHECK: %[[ALLOCA:.+]] = llvm.alloca %{{.+}} x f32
+    // CHECK: "llvm.intr.memcpy"(%[[ALLOCA]], %[[PTR]]
+    llvm.call @byval_in_parallel(%ptr) : (!llvm.ptr) -> ()
+    test.region_yield %c0 : index
+  }
+  llvm.return
+}
+
+// -----
+
 llvm.func @ignored_attrs(%ptr : !llvm.ptr { llvm.inreg, llvm.nocapture, llvm.nofree, llvm.preallocated = i32, llvm.returned, llvm.alignstack = 32 : i64, llvm.writeonly, llvm.noundef, llvm.nonnull }, %x : i32 { llvm.zeroext }) -> (!llvm.ptr { llvm.noundef, llvm.inreg, llvm.nonnull }) {
   llvm.return %ptr : !llvm.ptr
 }
@@ -601,7 +647,7 @@ llvm.func @test_disallow_arg_attr(%ptr : !llvm.ptr) {
 #caller = #llvm.access_group<id = distinct[1]<>>
 
 llvm.func @inlinee(%ptr : !llvm.ptr) -> i32 {
-  %0 = llvm.load %ptr { access_groups = [#callee] } : !llvm.ptr -> i32
+  %0 = llvm.load %ptr <access_groups = [#callee]> : !llvm.ptr -> i32
   llvm.return %0 : i32
 }
 
@@ -635,7 +681,7 @@ llvm.func @inlinee(%ptr : !llvm.ptr) -> i32 {
 llvm.func @caller(%ptr : !llvm.ptr) -> i32 {
   %c5 = llvm.mlir.constant(5 : i32) : i32
   %0 = llvm.call @inlinee(%ptr) { access_groups = [#caller] } : (!llvm.ptr) -> (i32)
-  llvm.store %c5, %ptr { access_groups = [#caller] } : i32, !llvm.ptr
+  llvm.store %c5, %ptr <access_groups = [#caller]> : i32, !llvm.ptr
   llvm.return %0 : i32
 }
 

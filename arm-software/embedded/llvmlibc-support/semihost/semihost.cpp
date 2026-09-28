@@ -9,20 +9,21 @@
 #include "semihost.h"
 #include "platform.h"
 
-#include <ctype.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 namespace {
 
-void stdio_open(struct __llvm_libc_stdio_cookie *cookie, size_t mode) {
-  size_t args[3];
-  args[0] = reinterpret_cast<size_t>(":tt");
-  args[1] = mode;
-  args[2] = static_cast<size_t>(3); /* name length */
+bool stdio_open(struct __llvm_libc_stdio_cookie *cookie, size_t mode) {
+  const char std_stream_name[] = ":tt";
+  size_t args[] = {
+      reinterpret_cast<size_t>(std_stream_name),
+      mode,
+      sizeof(std_stream_name) - 1UL,
+  };
   cookie->handle = semihosting_call(SYS_OPEN, args);
+  return cookie->handle >= 0;
 }
 } // namespace
 
@@ -31,9 +32,10 @@ extern "C" {
 static void semihosting_call_exit(int status) {
 
 #if defined(__ARM_64BIT_STATE) && __ARM_64BIT_STATE
-  size_t block[2];
-  block[0] = ADP_Stopped_ApplicationExit;
-  block[1] = status;
+  size_t block[] = {
+      ADP_Stopped_ApplicationExit,
+      static_cast<size_t>(status),
+  };
   semihosting_call(SYS_EXIT, block);
 #else
   if (status == 0) {
@@ -80,10 +82,11 @@ ssize_t __llvm_libc_stdio_read(struct __llvm_libc_stdio_cookie *cookie,
 
 ssize_t __llvm_libc_stdio_write(struct __llvm_libc_stdio_cookie *cookie,
                                 const char *buf, size_t size) {
-  size_t args[4];
-  args[0] = static_cast<size_t>(cookie->handle);
-  args[1] = reinterpret_cast<size_t>(buf);
-  args[2] = size;
+  size_t args[] = {
+      static_cast<size_t>(cookie->handle),
+      reinterpret_cast<size_t>(buf),
+      size,
+  };
   ssize_t retval = semihosting_call(SYS_WRITE, args);
   if (retval >= 0)
     retval = size - retval;
@@ -114,14 +117,19 @@ bool __llvm_libc_timespec_get_utc(struct timespec *ts) {
 void _platform_init(void) {
   stdio_open(&__llvm_libc_stdin_cookie, OPENMODE_R);
   stdio_open(&__llvm_libc_stdout_cookie, OPENMODE_W);
-  stdio_open(&__llvm_libc_stderr_cookie, OPENMODE_W);
+  // The convention of opening ":tt" in append mode to specify stderr is not
+  // supported by all semihosting implementations. If this open fails, retry in
+  // write mode, because having stderr squashed into stdout is better than not
+  // having it at all.
+  if (!stdio_open(&__llvm_libc_stderr_cookie, OPENMODE_A))
+    stdio_open(&__llvm_libc_stderr_cookie, OPENMODE_W);
 }
 
 // Debug output
 void _platform_debug_putc(int c) {
   unsigned char ch = (unsigned char)c;
 
-  __llvm_libc_stdio_write(&__llvm_libc_stderr_cookie, (const char *)&ch, 1);
+  semihosting_call(SYS_WRITEC, &ch);
 }
 
 // Provide command line options (argc/argv) for the main function
@@ -133,8 +141,23 @@ void _platform_debug_putc(int c) {
 // - Escape sequences: \ copies next char as-is unless inside ' quotes
 //   or at the end of the string.
 
+// Helper functions implemented here to avoid dependency on libc which is not
+// available in LLVM libc hermetic testing.
+static int _isspace(char ch) {
+  return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\v' ||
+         ch == '\f';
+}
+
+__attribute__((no_builtin("strlen"))) static size_t _strlen(const char *str) {
+  const char *pend = str;
+  while (*pend) {
+    pend++;
+  }
+  return (size_t)(pend - str);
+}
+
 static inline void skip_spaces(const char *&p) {
-  while (isspace(static_cast<unsigned char>(*p)))
+  while (_isspace(*p))
     ++p;
 }
 
@@ -165,7 +188,7 @@ static int parse_cmdline_buf(char *buf) {
       } else if (quote && c == quote) {
         quote = '\0'; // End quoted section
         continue;
-      } else if (!quote && isspace(static_cast<unsigned char>(c))) {
+      } else if (!quote && _isspace(c)) {
         break; // End of token
       }
 
@@ -184,7 +207,7 @@ static int fill_argv_from_parsed_buf(const char *buf, const char **argv,
                                      int argc) {
   for (int i = 0; i < argc; i++) {
     argv[i] = buf;
-    buf += strlen(buf) + 1;
+    buf += _strlen(buf) + 1;
   }
   argv[argc] = nullptr;
   return argc;

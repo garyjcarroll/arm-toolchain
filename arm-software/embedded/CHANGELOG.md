@@ -8,7 +8,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 ### Changed
+
+- macOS package provides Apple Silicon binaries only.
+  It is possible to build the universal package from sources by setting the
+  `CMAKE_OSX_ARCHITECTURES` CMake option.
+
 ### Deprecated
+### Removed
+### Fixed
+### Security
+
+## [23.1.0]
+
+### Added
+
+- Shared support libraries now provide `libatomic-fallback.a` whose weak
+definitions can be overridden by users on platforms without native atomic
+operation support.
+- Bare-metal semihosting KASan sample with a minimal sanitizer runtime added.
+- SME support added to the LLVM libc startup code by providing
+[__arm_sme_state](https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst#811__arm_sme_state).
+- Static TLS (Thread Local Storage) support added in LLVM libc startup code to
+enable language conformance testing. This did not add multithreading support.
+- `clangd` was added to the binary package.
+- [Guidance](docs/llvmlibc.md#migrating-from-picolibc-to-llvm-libc) added for
+migrating projects from `picolibc` to LLVM libc.
+
+### Changed
+
+- LLVM libc support is no longer marked experimental and is considered
+production quality for typical embedded use cases.
+- Modular `printf` is implemented in LLVM libc so that floating point
+conversion code is not linked in if it is not used by the application,
+significantly reducing the code size.
+- `clang_rt.profile` profiling and code coverage library is now automatically
+added to the command line when profiling instrumentation is enabled.
+
+### Deprecated
+
+- `picolibc` will be superseded with LLVM libc as the default C library in
+  ATfE 24. Further in ATfE 25 `picolibc` will be moved out of the main ATfE
+  package into an overlay package. To keep using `picolibc` in your project
+  add `--config=picolibc.cfg` to the command line.
+- Intel-based Mac support is deprecated: in a future release the Darwin binary
+package will be converted from `universal` to `arm64`-only. ATfE will keep the
+CMake option to build the `universal` package from source.
+
 ### Removed
 ### Fixed
 ### Security

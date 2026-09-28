@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 # SPDX-FileCopyrightText: Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
 
 import os
@@ -11,6 +9,7 @@ from os import environ
 from os import path
 from dataclasses import dataclass
 from platform import uname
+from typing import Optional
 import shlex
 
 
@@ -20,6 +19,7 @@ class FVP:
     tarmac_plugin: str
     crypto_plugin: str
     cmdline_param: str
+    stderr_param: Optional[str] = None
 
 
 MODELS = {
@@ -27,42 +27,46 @@ MODELS = {
         "x86": FVP(
             "Corstone-310/models/Linux64_GCC-9.3/FVP_Corstone_SSE-310",
             "Corstone-310/plugins/Linux64_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_GCC-9.3/Crypto.so",
+            "FastModels_11.31_28/plugins/Linux64_GCC-9.3/Crypto.so",
             "cpu0.semihosting-cmd_line",
         ),
         "aarch64": FVP(
             "Corstone-310/models/Linux64_armv8l_GCC-9.3/FVP_Corstone_SSE-310",
             "Corstone-310/plugins/Linux64_armv8l_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_armv8l_GCC-9.3/Crypto.so",
+            "FastModels_11.31_28/plugins/Linux64_armv8l_GCC-9.3/Crypto.so",
             "cpu0.semihosting-cmd_line",
         ),
     },
     "aem-a": {
         "x86": FVP(
-            "Base_RevC_AEMvA_pkg/models/Linux64_GCC-9.3/FVP_Base_RevC-2xAEMvA",
-            "Base_RevC_AEMvA_pkg/plugins/Linux64_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_GCC-9.3/Crypto.so",
+            "FVP_Base_RevC_AEMvA_11.31_28/bin/FVP_Base_RevC-2xAEMvA",
+            "FVP_Base_RevC_AEMvA_11.31_28/plugins/TarmacTrace.so",
+            "FastModels_11.31_28/plugins/Linux64_GCC-12.3/Crypto.so",
             "cluster0.cpu0.semihosting-cmd_line",
+            "cluster0.cpu0.semihosting-use_stderr",
         ),
         "aarch64": FVP(
-            "Base_RevC_AEMvA_pkg/models/Linux64_armv8l_GCC-9.3/FVP_Base_RevC-2xAEMvA",
-            "Base_RevC_AEMvA_pkg/plugins/Linux64_armv8l_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_armv8l_GCC-9.3/Crypto.so",
+            "FVP_Base_RevC_AEMvA_11.31_28/bin/FVP_Base_RevC-2xAEMvA",
+            "FVP_Base_RevC_AEMvA_11.31_28/plugins/TarmacTrace.so",
+            "FastModels_11.31_28/plugins/Linux64_armv8l_GCC-12.3/Crypto.so",
             "cluster0.cpu0.semihosting-cmd_line",
+            "cluster0.cpu0.semihosting-use_stderr",
         ),
     },
     "aem-r": {
         "x86": FVP(
-            "AEMv8R_base_pkg/models/Linux64_GCC-9.3/FVP_BaseR_AEMv8R",
-            "AEMv8R_base_pkg/plugins/Linux64_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_GCC-9.3/Crypto.so",
+            "FVP_Base_AEMv8R_11.31_28/bin/FVP_BaseR_AEMv8R",
+            "FVP_Base_AEMv8R_11.31_28/plugins/TarmacTrace.so",
+            "FastModels_11.31_28/plugins/Linux64_GCC-12.3/Crypto.so",
             "cluster0.cpu0.semihosting-cmd_line",
+            "cluster0.cpu0.semihosting-use_stderr",
         ),
         "aarch64": FVP(
-            "AEMv8R_base_pkg/models/Linux64_armv8l_GCC-9.3/FVP_BaseR_AEMv8R",
-            "AEMv8R_base_pkg/plugins/Linux64_armv8l_GCC-9.3/TarmacTrace.so",
-            "FastModelsPortfolio_11.27/plugins/Linux64_armv8l_GCC-9.3/Crypto.so",
+            "FVP_Base_AEMv8R_11.31_28/bin/FVP_BaseR_AEMv8R",
+            "FVP_Base_AEMv8R_11.31_28/plugins/TarmacTrace.so",
+            "FastModels_11.31_28/plugins/Linux64_armv8l_GCC-12.3/Crypto.so",
             "cluster0.cpu0.semihosting-cmd_line",
+            "cluster0.cpu0.semihosting-use_stderr",
         ),
     },
 }
@@ -131,6 +135,8 @@ def run_fvp(
         )
 
     command.extend(["--parameter", f"{model.cmdline_param}={shlex.join(arguments)}"])
+    if model.stderr_param is not None:
+        command.extend(["--parameter", f"{model.stderr_param}=1"])
     command.extend(["--plugin", path.join(fvp_install_dir, model.crypto_plugin)])
     if tarmac_file is not None:
         command.extend(

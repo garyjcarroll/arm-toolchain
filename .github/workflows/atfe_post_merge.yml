@@ -12,7 +12,7 @@
 # It builds and tests the Arm Toolchain for Embedded (ATfE) to validate that the
 # merged changes do not introduce regressions and that the build remains stable.
 
-name: ATfE Post-Merge
+name: (ATfE) Post-Merge
 
 on:
   # Trigger when a pull request is closed
@@ -44,7 +44,7 @@ on:
 
   # Trigger after the Automerge workflow completes
   workflow_run:
-    workflows: [Automerge]
+    workflows: ["(arm-toolchain) Automerge"]
     types: [completed]
 
 jobs:
@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Dependencies
         run: ./arm-software/embedded/scripts/install_dependencies.sh
@@ -73,7 +73,7 @@ jobs:
         run: python3 arm-software/embedded/cmake/patch_repo.py --method apply arm-software/embedded/patches/llvm-project-perf
 
       - name: Build
-        run: ./arm-software/embedded/scripts/build.sh
+        run: ./arm-software/embedded/scripts/build_post_merge.sh
 
       - name: Test
-        run: ./arm-software/embedded/scripts/test_post-merge.sh
+        run: ./arm-software/embedded/scripts/test_post_merge.sh

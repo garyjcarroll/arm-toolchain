@@ -1,6 +1,6 @@
 // Main program for elf2bin
 //
-// Copyright (c) 2022-2025, Arm Limited and affiliates.
+// Copyright (c) 2022-2026, Arm Limited and affiliates.
 //
 // Part of the Arm Toolchain project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -34,7 +34,6 @@
 #include "llvm/Option/Option.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/LLVMDriver.h"
 
 using namespace llvm;
 using llvm::object::ELFObjectFileBase;
@@ -168,25 +167,12 @@ enum ID {
 #undef OPTION
 };
 
-#define OPTTABLE_STR_TABLE_CODE
+#define OPTTABLE_CODE
 #include "Opts.inc"
-#undef OPTTABLE_STR_TABLE_CODE
 
-#define OPTTABLE_PREFIXES_TABLE_CODE
-#include "Opts.inc"
-#undef OPTTABLE_PREFIXES_TABLE_CODE
-
-static constexpr opt::OptTable::Info InfoTable[] = {
-#define OPTION(...) LLVM_CONSTRUCT_OPT_INFO(__VA_ARGS__),
-#include "Opts.inc"
-#undef OPTION
-};
-
-class Elf2BinOptTable : public opt::GenericOptTable {
+class Elf2BinOptTable : public opt::OptTable {
 public:
-  Elf2BinOptTable()
-      : opt::GenericOptTable(OptionStrTable, OptionPrefixesTable, InfoTable,
-                             true) {}
+  Elf2BinOptTable() : opt::OptTable(optionTables(), true) {}
 };
 
 } // namespace

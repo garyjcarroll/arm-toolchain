@@ -18,6 +18,30 @@ namespace misc {
 
 using namespace sysreg;
 
+#if defined(__ARM_ARCH_ISA_A64)
+[[clang::always_inline]] inline bool has_sme_or_sme2() {
+  return ID_AA64PFR1.SME != 0 || ID_AA64PFR1.SME2 != 0;
+}
+
+[[clang::always_inline]] inline void init_sme_state() {
+  if (!has_sme_or_sme2())
+    return;
+
+  // TPIDR2_EL0 resets to an architecturally unknown value, so clear it.
+  TPIDR2 = 0;
+  __isb(0xf);
+
+  // Try to set the streaming vector length to the architectural maximum.
+  if (CurrentEL.is(ExceptionLevel::EL3)) {
+    SMCR_EL3.LEN = 0xf;
+    __isb(0xf);
+  } else if (CurrentEL.is(ExceptionLevel::EL2)) {
+    SMCR_EL2.LEN = 0xf;
+    __isb(0xf);
+  }
+}
+#endif
+
 extern "C" [[gnu::weak]] void _platform_setup_arch_extensions() {
 #ifdef __ARM_FEATURE_PAUTH
   // Set all of the pointer authentication keys to different values. In
@@ -54,6 +78,7 @@ extern "C" [[gnu::weak]] void _platform_setup_arch_extensions() {
   // relevant feature these bits are ignored, so safe to set unconditionally.
   CPTR.EZ = 1;
   CPTR.ESM = 1;
+  init_sme_state();
 #else
   // Enable VFP and SIMD
   __arm_wsr("fpexc", 1 << 30);
@@ -67,17 +92,25 @@ extern "C" [[gnu::weak]] void _platform_setup_arch_extensions() {
 #if !defined(__ARM_ARCH_ISA_A64) &&                                            \
     !(__ARM_ARCH_PROFILE == 'R' && __ARM_ARCH >= 8)
   // Copy the current sp value to each of the banked copies of sp.
-  __arm_wsr("CPSR_c", 0x11); // FIQ
-  asm volatile("mov sp, %0" : : "r"(__builtin_frame_address(0)));
-  __arm_wsr("CPSR_c", 0x12); // IRQ
-  asm volatile("mov sp, %0" : : "r"(__builtin_frame_address(0)));
-  __arm_wsr("CPSR_c", 0x17); // ABT
-  asm volatile("mov sp, %0" : : "r"(__builtin_frame_address(0)));
-  __arm_wsr("CPSR_c", 0x1B); // UND
-  asm volatile("mov sp, %0" : : "r"(__builtin_frame_address(0)));
-  __arm_wsr("CPSR_c", 0x1F); // SYS
-  asm volatile("mov sp, %0" : : "r"(__builtin_frame_address(0)));
-  __arm_wsr("CPSR_c", 0x13); // SVC
+  asm volatile(
+      "mov r0, sp\n"
+      "mov r1, #0x11\n" // FIQ
+      "msr CPSR_c, r1\n"
+      "mov sp, r0\n"
+      "mov r1, #0x12\n" // IRQ
+      "msr CPSR_c, r1\n"
+      "mov sp, r0\n"
+      "mov r1, #0x17\n" // ABT
+      "msr CPSR_c, r1\n"
+      "mov sp, r0\n"
+      "mov r1, #0x1B\n" // UND
+      "msr CPSR_c, r1\n"
+      "mov sp, r0\n"
+      "mov r1, #0x1F\n" // SYS
+      "msr CPSR_c, r1\n"
+      "mov sp, r0\n"
+      "mov r1, #0x13\n" // return to SVC
+      "msr CPSR_c, r1" : : : "r0", "r1");
 #endif
 }
 

@@ -24,9 +24,10 @@ produced and uploaded.
 Nightly build artifacts are available through the GitHub Actions section of
 this repository. To locate them:
 
+1. Make sure you are signed in to GitHub.
 1. Navigate to the [“ATfE Nightly Build and Test”](https://github.com/arm/arm-toolchain/actions/workflows/atfe_nightly_build_and_test.yml) Workflow in the Github Actions tab
-3. Choose a specific workflow run e.g., the latest successful run
-4. Scroll to the bottom of the run page to find the list of generated build
+1. Choose a specific workflow run e.g., the latest successful run
+1. Scroll to the bottom of the run page to find the list of generated build
 artifacts
 
 ## Downloading Nightly Build Artifacts
@@ -44,6 +45,31 @@ repository:
 ```
 gh run download
 ```
+
+## Using Nightly Build executables
+
+Executable files in the Nightly Builds are not signed, thus may trigger
+a host OS protection mechanism:
+
+* **Windows** may show a warning about unknown publisher and require user approval
+  to run the binary.
+* **macOS** may block the binary from running by quarantining it.
+  * To prevent macOS from blocking the binaries, extract the package downloaded
+    from GitHub using a command line tool, e.g. `unzip`, this will prevent macOS
+    from setting the quarantine attribute.
+  * To remove the quarantine attribute, change directory to `bin` and run the
+    following command:
+
+    ```
+    $ find . -type f -perm +0111 | xargs xattr -d com.apple.quarantine
+    ```
+
+## Checking Nightly Build quality
+
+Test results in XML format and detailed test execution logs can be downloaded
+from the list of Artifacts:
+* `test-results-*-<host OS>`
+* `logs-*-<host OS>`
 
 ## Retention Policy
 
